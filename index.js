@@ -28,40 +28,63 @@ app.get('/api/hello', function(req, res) {
   res.json({ greeting: 'hello API' });
 });
 
+// POST: Create short URL
 app.post('/api/shorturl', async (req, res) => {
-  const { originalUrl } = req.body;
+  const { url } = req.body;
 
-  if (!originalUrl) {
-    return res.status(400).json({ error: 'Invalid URL' });
+  // Validate URL format
+  const urlRegex = /^(https?:\/\/)(www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(:[0-9]+)?(\/.*)?$/;
+  if (!urlRegex.test(url)) {
+    return res.json({ error: 'invalid url' });
   }
 
   try {
-    const shortId = await Url.countDocuments() + 1;
-    const newUrl = new Url({ originalUrl, shortId });
+    // Check if URL already exists
+    let existingUrl = await Url.findOne({ original_url: url });
+    if (existingUrl) {
+      return res.json({
+        original_url: existingUrl.original_url,
+        short_url: existingUrl.short_url,
+      });
+    }
+
+    // Generate short URL ID
+    const count = await Url.countDocuments();
+    const shortUrl = count + 1;
+
+    // Save URL to database
+    const newUrl = new Url({ original_url: url, short_url: shortUrl });
     await newUrl.save();
 
-    res.json({ originalUrl, shortUrl: `/api/shorturl/${shortId}` });
-  } catch (err) {
-    res.status(500).json({ error: 'Database error' });
+    res.json({
+      original_url: newUrl.original_url,
+      short_url: newUrl.short_url,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'server error' });
   }
 });
 
-// GET: Redirect to the original URL
-app.get('/api/shorturl/:shortId', async (req, res) => {
-  const { shortId } = req.params;
+// GET: Redirect to original URL
+app.get('/api/shorturl/:short_url', async (req, res) => {
+  const { short_url } = req.params;
 
   try {
-    const urlEntry = await Url.findOne({ shortId: Number(shortId) });
-
-    if (urlEntry) {
-      return res.redirect(urlEntry.originalUrl);
-    } else {
-      return res.status(404).json({ error: 'Short URL not found' });
+    const urlData = await Url.findOne({ short_url });
+    if (!urlData) {
+      return res.json({ error: 'No short URL found for the given input' });
     }
-  } catch (err) {
-    res.status(500).json({ error: 'Database error' });
+
+    res.redirect(urlData.original_url);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'server error' });
   }
 });
+
+
+
 
 app.listen(port, function() {
   console.log(`Listening on port ${port}`);
