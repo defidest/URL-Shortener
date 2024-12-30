@@ -2,15 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const app = express();
-
 const bodyParser = require('body-parser');
-const mongoose = require('mongoose');
 
-
-mongoose.connect(process.env.MONGO_URI);
-
-
-const Url = require('./models/url');
+const urlDatabase = {}; // In-memory storage for URLs
+let counter = 1; // Counter for generating short URLs
 
 // Basic Configuration
 const port = process.env.PORT || 3000;
@@ -23,68 +18,53 @@ app.get('/', function(req, res) {
   res.sendFile(process.cwd() + '/views/index.html');
 });
 
-// Your first API endpoint
-app.get('/api/hello', function(req, res) {
-  res.json({ greeting: 'hello API' });
-});
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// POST: Create short URL
-app.post('/api/shorturl', async (req, res) => {
-  const { url } = req.body;
+// app.post('/api/shorturl', (req, res) => {
+//   // console.log(req.body);
+//   res.json({
+//     urlGot: req.body
+//   });
+// });
 
-  // Validate URL format
-  const urlRegex = /^(https?:\/\/)(www\.)?[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(:[0-9]+)?(\/.*)?$/;
-  if (!urlRegex.test(url)) {
-    return res.json({ error: 'invalid url' });
+// app.get('/api/shorturl/:shorturl', (req, res) => {
+
+// });
+
+app.post('/api/shorturl', (req, res) => {
+  const originalUrl = req.body.url;
+
+  if (!/^https?:\/\//.test(originalUrl)) {
+    return res.json({ error: 'Invalid URL' });
   }
 
-  try {
-    // Check if URL already exists
-    let existingUrl = await Url.findOne({ original_url: url });
-    if (existingUrl) {
-      return res.json({
-        original_url: existingUrl.original_url,
-        short_url: existingUrl.short_url,
-      });
-    }
+  // Check if the URL already exists
+  const existingKey = Object.keys(urlDatabase).find(
+    key => urlDatabase[key] === originalUrl
+  );
 
-    // Generate short URL ID
-    const count = await Url.countDocuments();
-    const shortUrl = count + 1;
-
-    // Save URL to database
-    const newUrl = new Url({ original_url: url, short_url: shortUrl });
-    await newUrl.save();
-
-    res.json({
-      original_url: newUrl.original_url,
-      short_url: newUrl.short_url,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'server error' });
+  if (existingKey) {
+    return res.json({ original_url: originalUrl, short_url: existingKey });
   }
+
+  // Store the new URL with a unique number
+  const shortUrl = counter++;
+  urlDatabase[shortUrl] = originalUrl;
+
+  res.json({ original_url: originalUrl, short_url: shortUrl });
 });
 
-// GET: Redirect to original URL
-app.get('/api/shorturl/:short_url', async (req, res) => {
-  const { short_url } = req.params;
+// GET route to redirect using the short URL
+app.get('/api/shorturl/:shorturl', (req, res) => {
+  const shortUrl = req.params.shorturl;
+  const originalUrl = urlDatabase[shortUrl];
 
-  try {
-    const urlData = await Url.findOne({ short_url });
-    if (!urlData) {
-      return res.json({ error: 'No short URL found for the given input' });
-    }
-
-    res.redirect(urlData.original_url);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'server error' });
+  if (!originalUrl) {
+    return res.json({ error: 'No short URL found for the given input' });
   }
+
+  res.redirect(originalUrl);
 });
-
-
-
 
 app.listen(port, function() {
   console.log(`Listening on port ${port}`);
